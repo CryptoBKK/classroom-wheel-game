@@ -264,6 +264,8 @@ export default function WheelGame() {
       gameStarted: false,
       gameMode: 'setup',
       numTeams: 1,
+      showGuessDialog: false,
+      guessInput: '',
     });
     setCustomPhrase('');
   };
