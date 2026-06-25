@@ -3,6 +3,63 @@
 import { useState, useEffect } from 'react';
 import './page.css';
 
+// Sound effects using Web Audio API
+const playSound = (type: 'correct' | 'wrong' | 'reveal' | 'win') => {
+  try {
+    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const now = audioContext.currentTime;
+
+    if (type === 'correct') {
+      const osc = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+      osc.connect(gain);
+      gain.connect(audioContext.destination);
+      osc.frequency.setValueAtTime(800, now);
+      osc.frequency.setValueAtTime(1000, now + 0.1);
+      gain.gain.setValueAtTime(0.3, now);
+      gain.gain.setValueAtTime(0, now + 0.2);
+      osc.start(now);
+      osc.stop(now + 0.2);
+    } else if (type === 'wrong') {
+      const osc = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+      osc.connect(gain);
+      gain.connect(audioContext.destination);
+      osc.frequency.setValueAtTime(300, now);
+      osc.frequency.setValueAtTime(200, now + 0.2);
+      gain.gain.setValueAtTime(0.3, now);
+      gain.gain.setValueAtTime(0, now + 0.3);
+      osc.start(now);
+      osc.stop(now + 0.3);
+    } else if (type === 'reveal') {
+      const osc = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+      osc.connect(gain);
+      gain.connect(audioContext.destination);
+      osc.frequency.setValueAtTime(600, now);
+      gain.gain.setValueAtTime(0.2, now);
+      gain.gain.setValueAtTime(0, now + 0.1);
+      osc.start(now);
+      osc.stop(now + 0.1);
+    } else if (type === 'win') {
+      const frequencies = [523, 659, 784, 1047];
+      frequencies.forEach((freq, idx) => {
+        const osc = audioContext.createOscillator();
+        const gain = audioContext.createGain();
+        osc.connect(gain);
+        gain.connect(audioContext.destination);
+        osc.frequency.setValueAtTime(freq, now + idx * 0.15);
+        gain.gain.setValueAtTime(0.2, now + idx * 0.15);
+        gain.gain.setValueAtTime(0, now + idx * 0.15 + 0.3);
+        osc.start(now + idx * 0.15);
+        osc.stop(now + idx * 0.15 + 0.3);
+      });
+    }
+  } catch (e) {
+    // Audio context not available
+  }
+};
+
 interface Team {
   name: string;
   score: number;
@@ -19,6 +76,8 @@ interface GameState {
   gameStarted: boolean;
   gameMode: 'setup' | 'category' | 'playing' | 'roundEnd' | 'gameEnd';
   numTeams: number;
+  showGuessDialog: boolean;
+  guessInput: string;
 }
 
 const CATEGORIES = [
@@ -63,6 +122,8 @@ export default function WheelGame() {
     gameStarted: false,
     gameMode: 'setup',
     numTeams: 1,
+    showGuessDialog: false,
+    guessInput: '',
   });
 
   const [customPhrase, setCustomPhrase] = useState('');
@@ -104,6 +165,7 @@ export default function WheelGame() {
 
     if (gameState.phrase.includes(upperLetter)) {
       // Correct guess
+      playSound('correct');
       const newRevealed = new Set(gameState.revealedLetters);
       newRevealed.add(upperLetter);
       setGameState(prev => ({
@@ -114,6 +176,7 @@ export default function WheelGame() {
       // Check if phrase is complete
       if (isPhraseSolved(gameState.phrase, newRevealed)) {
         setTimeout(() => {
+          playSound('win');
           const newTeams = [...gameState.teams];
           newTeams[gameState.currentTeamIndex].score += 100;
           setGameState(prev => ({
@@ -125,6 +188,7 @@ export default function WheelGame() {
       }
     } else {
       // Wrong guess
+      playSound('wrong');
       const newWrong = new Set(gameState.guessedWrong);
       newWrong.add(upperLetter);
       const newTeams = [...gameState.teams];
@@ -143,6 +207,34 @@ export default function WheelGame() {
       .split('')
       .filter(char => char !== ' ')
       .every(char => revealed.has(char));
+  };
+
+  const submitGuess = () => {
+    const userGuess = gameState.guessInput.toUpperCase().trim();
+
+    if (userGuess === gameState.phrase) {
+      playSound('win');
+      const newTeams = [...gameState.teams];
+      newTeams[gameState.currentTeamIndex].score += 150;
+      setGameState(prev => ({
+        ...prev,
+        teams: newTeams,
+        gameMode: 'roundEnd',
+        showGuessDialog: false,
+        guessInput: '',
+      }));
+    } else {
+      playSound('wrong');
+      const newTeams = [...gameState.teams];
+      const nextTeamIndex = (gameState.currentTeamIndex + 1) % gameState.numTeams;
+      setGameState(prev => ({
+        ...prev,
+        guessedWrong: new Set(prev.guessedWrong).add(`GUESS_${prev.currentTeamIndex}`),
+        currentTeamIndex: nextTeamIndex,
+        showGuessDialog: false,
+        guessInput: '',
+      }));
+    }
   };
 
   const nextRound = () => {
@@ -284,17 +376,25 @@ export default function WheelGame() {
     return (
       <div className="screen playing-screen">
         <div className="header">
-          <h1>Round {gameState.currentRound} of 10</h1>
-          <p className="category">Category: <strong>{gameState.category}</strong></p>
-          <p className="current-team">Current: <strong>{gameState.teams[gameState.currentTeamIndex].name}</strong></p>
+          <h1>🎡 Round {gameState.currentRound} of 10</h1>
+          <p className="category">📂 <strong>{gameState.category}</strong></p>
+          <p className="current-team">🎯 {gameState.teams[gameState.currentTeamIndex].name}'s Turn</p>
         </div>
 
-        <div className="phrase-display">
-          <div className="phrase">{displayPhrase}</div>
+        <div className="phrase-display-container">
+          <div className="phrase-display">
+            <div className="phrase-letters">
+              {gameState.phrase.split('').map((char, idx) => (
+                <div key={idx} className={`letter-tile ${char === ' ' ? 'space' : ''}`}>
+                  {char === ' ' ? '' : gameState.revealedLetters.has(char) ? char : '_'}
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
 
         <div className="guessing-section">
-          <h3>Guess a Letter:</h3>
+          <h3>🔤 Guess a Letter:</h3>
           <div className="alphabet-grid">
             {alphabet.map(letter => {
               const isRevealed = gameState.revealedLetters.has(letter);
@@ -313,12 +413,41 @@ export default function WheelGame() {
               );
             })}
           </div>
+
+          <button
+            className="btn-guess-answer"
+            onClick={() => setGameState(prev => ({ ...prev, showGuessDialog: true }))}
+          >
+            💡 Guess the Answer
+          </button>
         </div>
+
+        {gameState.showGuessDialog && (
+          <div className="modal-overlay">
+            <div className="modal-dialog">
+              <h2>Guess the Phrase</h2>
+              <input
+                type="text"
+                placeholder="Enter your guess..."
+                value={gameState.guessInput}
+                onChange={(e) => setGameState(prev => ({ ...prev, guessInput: e.target.value }))}
+                onKeyPress={(e) => e.key === 'Enter' && submitGuess()}
+                autoFocus
+              />
+              <div className="modal-buttons">
+                <button className="btn-primary" onClick={submitGuess}>Submit</button>
+                <button className="btn-secondary" onClick={() => setGameState(prev => ({ ...prev, showGuessDialog: false, guessInput: '' }))}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="scores">
           {gameState.teams.map((team, i) => (
             <div key={i} className={`score-item ${i === gameState.currentTeamIndex ? 'active' : ''}`}>
-              {team.name}: {team.score}
+              <span className="team-badge">{i + 1}</span>
+              <span className="team-name">{team.name}</span>
+              <span className="team-score">{team.score}</span>
             </div>
           ))}
         </div>
